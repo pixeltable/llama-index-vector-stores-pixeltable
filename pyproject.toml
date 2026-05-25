@@ -1,0 +1,57 @@
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "llama-index-vector-stores-pixeltable"
+version = "0.1.0"
+description = "LlamaIndex VectorStore integration for Pixeltable multimodal data infrastructure."
+readme = "README.md"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+requires-python = ">=3.10"
+authors = [
+    { name = "Pixeltable", email = "contact@pixeltable.com" },
+]
+keywords = ["llamaindex", "llama-index", "pixeltable", "vectorstore", "multimodal", "embeddings", "rag"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+dependencies = [
+    "llama-index-core>=0.11",
+    "pixeltable>=0.2.28",
+    "numpy",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "llama-index-embeddings-openai>=0.3",
+    "ruff>=0.4",
+]
+
+[project.urls]
+Homepage = "https://github.com/pixeltable/llama-index-vector-stores-pixeltable"
+Repository = "https://github.com/pixeltable/llama-index-vector-stores-pixeltable"
+Documentation = "https://docs.pixeltable.com/"
+Issues = "https://github.com/pixeltable/llama-index-vector-stores-pixeltable/issues"
+Discord = "https://discord.gg/QPyqFYx2UN"
+
+[tool.setuptools.packages.find]
+include = ["llama_index*"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
