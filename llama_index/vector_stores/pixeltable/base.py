@@ -2,6 +2,10 @@
 
 Bridges LlamaIndex's BasePydanticVectorStore interface with Pixeltable's
 embedding index and similarity search.
+
+Key Pixeltable advantages exposed here:
+- MetadataFilters on query() map to Pixeltable's ``.where()`` clause
+- ``.table`` property gives direct access for computed columns, lineage, joins
 """
 
 from __future__ import annotations
@@ -15,6 +19,9 @@ from llama_index.core.bridge.pydantic import Field, PrivateAttr
 from llama_index.core.schema import BaseNode, MetadataMode, TextNode
 from llama_index.core.vector_stores.types import (
     BasePydanticVectorStore,
+    FilterCondition,
+    FilterOperator,
+    MetadataFilter,
     MetadataFilters,
     VectorStoreQuery,
     VectorStoreQueryResult,
@@ -32,6 +39,15 @@ _METADATA_COL = 'metadata'
 _NODE_ID_COL = 'node_id'
 _REF_DOC_ID_COL = 'ref_doc_id'
 _EMBEDDING_COL = 'embedding'
+
+_OP_MAP = {
+    FilterOperator.EQ: lambda col, val: col == val,
+    FilterOperator.NE: lambda col, val: col != val,
+    FilterOperator.GT: lambda col, val: col > val,
+    FilterOperator.LT: lambda col, val: col < val,
+    FilterOperator.GTE: lambda col, val: col >= val,
+    FilterOperator.LTE: lambda col, val: col <= val,
+}
 
 
 class PixeltableVectorStore(BasePydanticVectorStore):
@@ -87,6 +103,16 @@ class PixeltableVectorStore(BasePydanticVectorStore):
             **kwargs,
         )
 
+    @property
+    def table(self) -> Any:
+        """Direct access to the underlying Pixeltable table.
+
+        Use for Pixeltable-native operations beyond the VectorStore interface:
+        computed columns, joins, ``.where()`` with arbitrary predicates,
+        version history, etc.
+        """
+        return self._get_or_create_table()
+
     def _get_or_create_table(self, embed_dim: Optional[int] = None) -> Any:
         if self._table is not None:
             return self._table
@@ -129,6 +155,41 @@ class PixeltableVectorStore(BasePydanticVectorStore):
     @property
     def client(self) -> Any:
         return self._get_or_create_table()
+
+    def _build_where(self, filters: Optional[MetadataFilters]) -> Optional[Any]:
+        """Translate LlamaIndex MetadataFilters into a Pixeltable predicate.
+
+        Supported operators: ==, !=, >, <, >=, <=.
+        Conditions are combined with AND (default) or OR.
+        """
+        if filters is None or not filters.filters:
+            return None
+
+        t = self._get_or_create_table()
+        meta_col = getattr(t, _METADATA_COL)
+
+        predicates = []
+        for f in filters.filters:
+            op_fn = _OP_MAP.get(f.operator)
+            if op_fn is None:
+                logger.warning('Unsupported filter operator %s, skipping', f.operator)
+                continue
+            predicates.append(op_fn(meta_col[f.key], f.value))
+
+        if not predicates:
+            return None
+
+        condition = filters.condition or FilterCondition.AND
+        if condition == FilterCondition.AND:
+            result = predicates[0]
+            for p in predicates[1:]:
+                result = result & p
+            return result
+        else:
+            result = predicates[0]
+            for p in predicates[1:]:
+                result = result | p
+            return result
 
     def add(self, nodes: List[BaseNode], **add_kwargs: Any) -> List[str]:
         """Add nodes with embeddings to the store.
@@ -179,18 +240,20 @@ class PixeltableVectorStore(BasePydanticVectorStore):
         filters: Optional[MetadataFilters] = None,
         **delete_kwargs: Any,
     ) -> None:
-        """Delete nodes by node ID.
+        """Delete nodes by node ID or metadata filter.
 
         Args:
             node_ids: List of node IDs to delete.
-            filters: Not yet supported.
+            filters: Optional metadata filters to select nodes for deletion.
         """
-        if node_ids is None:
-            return
         t = self._get_or_create_table()
-        id_col = getattr(t, _NODE_ID_COL)
-        for nid in node_ids:
-            t.delete(where=(id_col == nid))
+        if node_ids is not None:
+            id_col = getattr(t, _NODE_ID_COL)
+            for nid in node_ids:
+                t.delete(where=(id_col == nid))
+        where = self._build_where(filters)
+        if where is not None:
+            t.delete(where=where)
 
     def clear(self) -> None:
         """Remove all rows from the table."""
@@ -200,8 +263,13 @@ class PixeltableVectorStore(BasePydanticVectorStore):
     def query(self, query: VectorStoreQuery, **kwargs: Any) -> VectorStoreQueryResult:
         """Query the vector store for similar nodes.
 
+        Supports ``VectorStoreQuery.filters`` — each ``MetadataFilter`` maps
+        to a Pixeltable ``.where()`` predicate on the JSON metadata column,
+        evaluated *before* the similarity ranking.
+
         Args:
-            query: VectorStoreQuery with query_embedding and similarity_top_k.
+            query: VectorStoreQuery with query_embedding, similarity_top_k,
+                and optional filters.
 
         Returns:
             VectorStoreQueryResult with nodes, similarities, and IDs.
@@ -222,8 +290,13 @@ class PixeltableVectorStore(BasePydanticVectorStore):
         else:
             raise ValueError('Either query_embedding or query_str must be provided.')
 
+        chain = t
+        where = self._build_where(query.filters)
+        if where is not None:
+            chain = chain.where(where)
+
         result_set = (
-            t.order_by(sim, asc=False)
+            chain.order_by(sim, asc=False)
             .limit(k)
             .select(text_col, meta_col, id_col, sim=sim)
             .collect()

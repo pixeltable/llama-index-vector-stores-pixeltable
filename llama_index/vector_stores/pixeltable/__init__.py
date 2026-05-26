@@ -12,4 +12,4 @@ Usage:
 from llama_index.vector_stores.pixeltable.base import PixeltableVectorStore
 
 __all__ = ['PixeltableVectorStore']
-__version__ = '0.1.0'
+__version__ = '0.1.1'
