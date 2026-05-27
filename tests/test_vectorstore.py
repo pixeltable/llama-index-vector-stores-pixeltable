@@ -16,4 +16,4 @@ def test_version():
     """Verify version is set."""
     import llama_index.vector_stores.pixeltable
 
-    assert llama_index.vector_stores.pixeltable.__version__ == "0.1.1"
+    assert llama_index.vector_stores.pixeltable.__version__ == "0.1.2"
