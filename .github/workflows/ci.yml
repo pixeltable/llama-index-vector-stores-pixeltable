@@ -31,4 +31,4 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
       - run: pip install -e ".[dev]"
-      - run: pytest tests/ -v -k "not integration"
+      - run: pytest tests/ -v -k "not test_integration"
