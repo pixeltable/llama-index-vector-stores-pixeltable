@@ -11,17 +11,15 @@ Key Pixeltable advantages exposed here:
 from __future__ import annotations
 
 import logging
-from typing import Any, List, Optional
+from typing import Any
 
 import numpy as np
-import pixeltable as pxt
 from llama_index.core.bridge.pydantic import Field, PrivateAttr
 from llama_index.core.schema import BaseNode, MetadataMode, TextNode
 from llama_index.core.vector_stores.types import (
     BasePydanticVectorStore,
     FilterCondition,
     FilterOperator,
-    MetadataFilter,
     MetadataFilters,
     VectorStoreQuery,
     VectorStoreQueryResult,
@@ -31,14 +29,16 @@ from llama_index.core.vector_stores.utils import (
     node_to_metadata_dict,
 )
 
+import pixeltable as pxt
+
 logger = logging.getLogger(__name__)
 
-_DEFAULT_TABLE = 'llamaindex.documents'
-_TEXT_COL = 'text'
-_METADATA_COL = 'metadata'
-_NODE_ID_COL = 'node_id'
-_REF_DOC_ID_COL = 'ref_doc_id'
-_EMBEDDING_COL = 'embedding'
+_DEFAULT_TABLE = "llamaindex.documents"
+_TEXT_COL = "text"
+_METADATA_COL = "metadata"
+_NODE_ID_COL = "node_id"
+_REF_DOC_ID_COL = "ref_doc_id"
+_EMBEDDING_COL = "embedding"
 
 _OP_MAP = {
     FilterOperator.EQ: lambda col, val: col == val,
@@ -83,17 +83,17 @@ class PixeltableVectorStore(BasePydanticVectorStore):
     stores_text: bool = True
     flat_metadata: bool = True
 
-    table_name: str = Field(default=_DEFAULT_TABLE, description='Pixeltable table path')
-    embed_dim: Optional[int] = Field(default=None, description='Embedding dimension')
-    metric: str = Field(default='cosine', description='Distance metric')
+    table_name: str = Field(default=_DEFAULT_TABLE, description="Pixeltable table path")
+    embed_dim: int | None = Field(default=None, description="Embedding dimension")
+    metric: str = Field(default="cosine", description="Distance metric")
 
-    _table: Optional[Any] = PrivateAttr(default=None)
+    _table: Any | None = PrivateAttr(default=None)
 
     def __init__(
         self,
         table_name: str = _DEFAULT_TABLE,
-        embed_dim: Optional[int] = None,
-        metric: str = 'cosine',
+        embed_dim: int | None = None,
+        metric: str = "cosine",
         **kwargs: Any,
     ):
         super().__init__(
@@ -113,7 +113,7 @@ class PixeltableVectorStore(BasePydanticVectorStore):
         """
         return self._get_or_create_table()
 
-    def _get_or_create_table(self, embed_dim: Optional[int] = None) -> Any:
+    def _get_or_create_table(self, embed_dim: int | None = None) -> Any:
         if self._table is not None:
             return self._table
 
@@ -126,13 +126,13 @@ class PixeltableVectorStore(BasePydanticVectorStore):
         dim = embed_dim or self.embed_dim
         if dim is None:
             raise ValueError(
-                'embed_dim is required when creating a new table. '
-                'Either pass it to the constructor or ensure the table already exists.'
+                "embed_dim is required when creating a new table. "
+                "Either pass it to the constructor or ensure the table already exists."
             )
 
-        parts = self.table_name.rsplit('.', 1)
+        parts = self.table_name.rsplit(".", 1)
         if len(parts) == 2:
-            pxt.create_dir(parts[0], if_exists='ignore')
+            pxt.create_dir(parts[0], if_exists="ignore")
 
         self._table = pxt.create_table(
             self.table_name,
@@ -143,12 +143,12 @@ class PixeltableVectorStore(BasePydanticVectorStore):
                 _METADATA_COL: pxt.Json,
                 _EMBEDDING_COL: pxt.Array[(dim,), pxt.Float],
             },
-            if_exists='ignore',
+            if_exists="ignore",
         )
         self._table.add_embedding_index(
             _EMBEDDING_COL,
             metric=self.metric,
-            if_exists='ignore',
+            if_exists="ignore",
         )
         return self._table
 
@@ -156,7 +156,7 @@ class PixeltableVectorStore(BasePydanticVectorStore):
     def client(self) -> Any:
         return self._get_or_create_table()
 
-    def _build_where(self, filters: Optional[MetadataFilters]) -> Optional[Any]:
+    def _build_where(self, filters: MetadataFilters | None) -> Any | None:
         """Translate LlamaIndex MetadataFilters into a Pixeltable predicate.
 
         Supported operators: ==, !=, >, <, >=, <=.
@@ -172,7 +172,7 @@ class PixeltableVectorStore(BasePydanticVectorStore):
         for f in filters.filters:
             op_fn = _OP_MAP.get(f.operator)
             if op_fn is None:
-                logger.warning('Unsupported filter operator %s, skipping', f.operator)
+                logger.warning("Unsupported filter operator %s, skipping", f.operator)
                 continue
             predicates.append(op_fn(meta_col[f.key], f.value))
 
@@ -191,7 +191,7 @@ class PixeltableVectorStore(BasePydanticVectorStore):
                 result = result | p
             return result
 
-    def add(self, nodes: List[BaseNode], **add_kwargs: Any) -> List[str]:
+    def add(self, nodes: list[BaseNode], **add_kwargs: Any) -> list[str]:
         """Add nodes with embeddings to the store.
 
         Args:
@@ -212,13 +212,15 @@ class PixeltableVectorStore(BasePydanticVectorStore):
         for node in nodes:
             node_dict = node_to_metadata_dict(node, flat_metadata=self.flat_metadata)
             embedding = node.get_embedding()
-            rows.append({
-                _NODE_ID_COL: node.node_id,
-                _REF_DOC_ID_COL: node.ref_doc_id or '',
-                _TEXT_COL: node.get_content(metadata_mode=MetadataMode.NONE),
-                _METADATA_COL: node_dict,
-                _EMBEDDING_COL: embedding,
-            })
+            rows.append(
+                {
+                    _NODE_ID_COL: node.node_id,
+                    _REF_DOC_ID_COL: node.ref_doc_id or "",
+                    _TEXT_COL: node.get_content(metadata_mode=MetadataMode.NONE),
+                    _METADATA_COL: node_dict,
+                    _EMBEDDING_COL: embedding,
+                }
+            )
             ids.append(node.node_id)
 
         t.insert(rows)
@@ -236,8 +238,8 @@ class PixeltableVectorStore(BasePydanticVectorStore):
 
     def delete_nodes(
         self,
-        node_ids: Optional[List[str]] = None,
-        filters: Optional[MetadataFilters] = None,
+        node_ids: list[str] | None = None,
+        filters: MetadataFilters | None = None,
         **delete_kwargs: Any,
     ) -> None:
         """Delete nodes by node ID or metadata filter.
@@ -288,23 +290,18 @@ class PixeltableVectorStore(BasePydanticVectorStore):
         elif query.query_str is not None:
             sim = embed_col.similarity(string=query.query_str)
         else:
-            raise ValueError('Either query_embedding or query_str must be provided.')
+            raise ValueError("Either query_embedding or query_str must be provided.")
 
         chain = t
         where = self._build_where(query.filters)
         if where is not None:
             chain = chain.where(where)
 
-        result_set = (
-            chain.order_by(sim, asc=False)
-            .limit(k)
-            .select(text_col, meta_col, id_col, sim=sim)
-            .collect()
-        )
+        result_set = chain.order_by(sim, asc=False).limit(k).select(text_col, meta_col, id_col, sim=sim).collect()
 
-        nodes: List[TextNode] = []
-        similarities: List[float] = []
-        ids: List[str] = []
+        nodes: list[TextNode] = []
+        similarities: list[float] = []
+        ids: list[str] = []
 
         for row in result_set:
             meta_dict = row[_METADATA_COL] if row[_METADATA_COL] else {}
@@ -316,14 +313,11 @@ class PixeltableVectorStore(BasePydanticVectorStore):
                 node = TextNode(
                     text=row[_TEXT_COL],
                     id_=row[_NODE_ID_COL],
-                    metadata={
-                        key: val for key, val in meta_dict.items()
-                        if not key.startswith('_')
-                    },
+                    metadata={key: val for key, val in meta_dict.items() if not key.startswith("_")},
                 )
 
             nodes.append(node)
-            similarities.append(float(row['sim']))
+            similarities.append(float(row["sim"]))
             ids.append(row[_NODE_ID_COL])
 
         return VectorStoreQueryResult(
